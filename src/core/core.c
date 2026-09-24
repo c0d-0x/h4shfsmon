@@ -23,26 +23,25 @@
 #include <unistd.h>
 
 #include "event.h"
-#include "json_gen.h"
 #include "logger.h"
 // static int pidfd_get_pidfd(int pidfd, unsigned int flags) { return syscall(SYS_pidfd_getfd, pidfd, flags); }
 
-size_t check_lock(char *path_lock) {
+h4sh_status_t check_lock(char *path_lock) {
     if (access(path_lock, F_OK) == 0) {
         fprintf(stderr, "An instance of h4shfsmon is already running\n");
         fprintf(stderr, "If no h4shfsmon instance is running, Delete '%s' file \n", LOCK_FILE);
-        return CUSTOM_ERR;
+        return H4SH_OKK;
     }
 
     fprintf(stderr, "No instance of h4shfsmon running\n");
     FILE *fp_lock = NULL;
     if ((fp_lock = fopen(path_lock, "w")) == NULL) {
-        perror("Could not create lock file");
-        return CUSTOM_ERR;
+        fprintf(stderr, "Failed to create lock file [ %s ]: %s\n", strerror(errno), path_lock);
+        return H4SH_ERR;
     }
 
     fclose(fp_lock);
-    return EXIT_SUCCESS;
+    return H4SH_OK;
 }
 
 void fan_event_handler(int fan_fd, FILE *fp_log) {
@@ -52,7 +51,7 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
     // unsigned proc_buf[256] = {0};
     char *buffer[11] = {NULL};
     char path[PATH_MAX] = {0};
-    json_obj_t *json_obj = NULL;
+    h4sh_proc_info_t *proc_info = NULL;
     ssize_t ret_len = 0, path_len = 0, p_event = 0;
     char procfd_path[PATH_MAX] = {0};
 
@@ -122,20 +121,20 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
 
                 path[path_len] = '\0';
 
-                if ((json_obj = tokenizer(buffer)) == NULL) {
+                if ((proc_info = tokenizer(buffer)) == NULL) {
                     log_error("Failed to load effective process's info");
                     close(event->pidfd.pidfd);
                     raise(SIGTERM);
                 }
 
                 close(event->pidfd.pidfd);
-                json_obj->file = path;
-                json_obj->e_p_event = (p_event == FAN_MODIFY) ? "FILE_MODIFIED" : "FILE_ACCESSED";
+                proc_info->file = path;
+                proc_info->event = (p_event == FAN_MODIFY) ? "FILE_MODIFIED" : "FILE_ACCESSED";
 
-                log_info("%s %s %s %s %s %s", json_obj->e_p_event, json_obj->e_process, json_obj->e_p_Umask,
-                         json_obj->e_p_state, json_obj->e_username, json_obj->file);
+                log_info("%s %s %s %s %s %s", proc_info->event, proc_info->name, proc_info->Umask, proc_info->state,
+                         proc_info->username, proc_info->file);
 
-                cleanup_procinfo(json_obj);
+                cleanup_procinfo(proc_info);
                 close(event->meta.fd);
             }
 

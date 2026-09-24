@@ -12,10 +12,11 @@ INCLUDE        := -Iinclude -Ilib
 
 LDLIBS         := -lm -ldl -lpthread
 
-SRC            := $(wildcard src/core/*.c)
+SRC            := $(wildcard src/*.c)
+CORE            := $(wildcard src/core/*.c)
 CONF           := $(wildcard src/conf/*.c)
 EVENT		   := $(wildcard src/event/*.c)
-ALL_SRC        := $(SRC) $(CONF) $(EVENT)
+ALL_SRC        := $(SRC) $(CONF) $(CORE) $(EVENT)
 
 OBJ            := $(ALL_SRC:src/%.c=build/%.o)
 

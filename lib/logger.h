@@ -24,11 +24,14 @@
 #ifndef LOG_H
 #define LOG_H
 
+#include <assert.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <time.h>
 
 #if defined(__GNUC__) || defined(__clang__)
 #define __LOGGER_HAS_TYPEOF 1
@@ -138,10 +141,6 @@ void no_color_fmt2(record_t *rec, const char *time_buf);
 
 // #define LOGGER_IMPL
 #ifdef LOGGER_IMPL
-
-#include <assert.h>
-#include <string.h>
-#include <time.h>
 
 struct logger {
     log_LockFn lock;

@@ -1,4 +1,3 @@
-
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
@@ -25,9 +24,9 @@ int init_inotify(char *file_path) {
 }
 
 config_t *inotify_event_handler(int inotify_fd, int config_fd, config_t *(*handler)(int config_fd)) {
-    int len;
-    config_t *config_obj = NULL;
-    struct inotify_event *event;
+    int len = 0;
+    config_t *conf = NULL;
+    struct inotify_event *event = NULL;
     char buffer[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
 
     // TODO: Gaurds to watch only the config file.
@@ -36,14 +35,14 @@ config_t *inotify_event_handler(int inotify_fd, int config_fd, config_t *(*handl
             event = (struct inotify_event *) buf_prt;
 
             if ((event->mask & IN_MODIFY) || (event->mask & IN_CREATE)) {
-                config_obj = handler(config_fd);
+                conf = handler(config_fd);
 
                 if (inotify_add_watch(inotify_fd, CF_HOME_DIR, IN_MODIFY | IN_CREATE) == -1) {
                     log_error("Add Watch Failure: %s", strerror(errno));
                     raise(SIGTERM);
                 }
 
-                return config_obj;
+                return conf;
             }
         }
     }

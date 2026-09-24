@@ -11,7 +11,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "json_gen.h"
+#include "core.h"
 
 char *get_user(const uid_t uid) {
     struct passwd *pws;
@@ -44,12 +44,12 @@ void get_proc_info(pid_t pid, char *buffer[], size_t buf_max) {
     fclose(proc_fd);
 }
 
-json_obj_t *tokenizer(char *buffer[]) {
+h4sh_proc_info_t *tokenizer(char *buffer[]) {
     size_t i = 0;
     char *saveptr = NULL;
     char *token = NULL;
-    json_obj_t *json_obj = NULL;
-    if ((json_obj = calloc(0x1, sizeof(json_obj_t))) == NULL) {
+    h4sh_proc_info_t *proc_info = NULL;
+    if ((proc_info = calloc(0x1, sizeof(h4sh_proc_info_t))) == NULL) {
         log_error("Failed to allocate memory: %s", strerror(errno));
         return NULL;
     }
@@ -64,22 +64,22 @@ json_obj_t *tokenizer(char *buffer[]) {
 
             if (strncmp(token, "Name", 4) == 0) {
                 token = strtok_r(NULL, "\t ", &saveptr);
-                json_obj->e_process = strdup(token);
+                proc_info->name = strdup(token);
             }
 
             if (strncmp(token, "Umask", 5) == 0) {
                 token = strtok_r(NULL, "\t ", &saveptr);
-                json_obj->e_p_Umask = strdup(token);
+                proc_info->Umask = strdup(token);
             }
 
             if (strncmp(token, "State", 5) == 0) {
                 token = strtok_r(NULL, "\t ", &saveptr);
-                json_obj->e_p_state = strdup(saveptr);
+                proc_info->state = strdup(saveptr);
             }
 
             if (strncmp(token, "Uid", 3) == 0) {
                 token = strtok_r(NULL, "\t", &saveptr);
-                json_obj->e_username = strdup(get_user(atoi(token)));
+                proc_info->username = strdup(get_user(atoi(token)));
             }
             // log_debug("&buffer[%ld]: %p", i, buffer[i]);
             // log_debug("&token: %p\n", token);
@@ -88,17 +88,18 @@ json_obj_t *tokenizer(char *buffer[]) {
         }
         i++;
     }
-    return json_obj;
+    return proc_info;
 }
 
-void cleanup_procinfo(json_obj_t *log) {
-    if (log != NULL) {
-        if (log->date != NULL) free(log->date);
-        if (log->e_username != NULL) free(log->e_username);
-        if (log->e_process != NULL) free(log->e_process);
-        if (log->e_p_state != NULL) free(log->e_p_state);
-        if (log->e_p_Umask != NULL) free(log->e_p_Umask);
-        free(log);
+void cleanup_procinfo(h4sh_proc_info_t *proc_info) {
+    if (proc_info != NULL) {
+        if (proc_info->date != NULL) free(proc_info->date);
+        if (proc_info->cmd != NULL) free(proc_info->cmd);
+        if (proc_info->username != NULL) free(proc_info->username);
+        if (proc_info->name != NULL) free(proc_info->name);
+        if (proc_info->state != NULL) free(proc_info->state);
+        if (proc_info->Umask != NULL) free(proc_info->Umask);
+        free(proc_info);
     }
 }
 

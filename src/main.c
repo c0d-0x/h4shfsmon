@@ -1,6 +1,7 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include <time.h>
 #endif
 
 #ifndef _POSIX_C_SOURCE
@@ -12,6 +13,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/fanotify.h>
 #include <sys/poll.h>
 #include <sys/types.h>
@@ -19,7 +21,6 @@
 
 #include "conf.h"
 #include "core.h"
-#include "json_gen.h"
 #include "logger.h"
 
 int config_fd;
@@ -29,7 +30,7 @@ int fan_fd, inotify_fd;
 config_t *conf = NULL;
 
 void help(char *argv);
-int update_watchlist();
+h4sh_status_t update_watchlist();
 void signal_handler(int sig);
 static void parse_options(const int argc, char *argv[]);
 static void fan_mark_wraper(int fd, config_t *config_obj);
@@ -42,13 +43,13 @@ int main(int argc, char *argv[]) {
     struct sigaction sigact = {0};
 
     parse_options(argc, argv);
-    if (check_lock(LOCK_FILE) != 0) return EXIT_FAILURE;
+    if (check_lock(LOCK_FILE) != H4SH_OK) return EXIT_FAILURE;
 
     // if (!debug) DAEMONIZE();
     init_logger(DEFAULT_DATE_FORMAT3, !debug);
     if ((fp_lock = fopen(LOCK_FILE, "w")) == NULL) {
         log_debug("Failed to open %s file: %s", LOG_FILE, strerror(errno));
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
     fprintf(fp_lock, "%d", getpid());
@@ -59,21 +60,23 @@ int main(int argc, char *argv[]) {
     sigact.sa_handler = signal_handler;
     sigact.sa_flags = SA_RESTART;
 
-    log_debug("%s", "Making receptions for signals");
     if (sigaction(SIGTERM, &sigact, NULL) != 0 || sigaction(SIGINT, &sigact, NULL) != 0) {
         log_debug("%s", "Fail to make reception for signals");
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
+    log_debug("%s", "Made reception for signals");
     config_fd = open(CONFIG_FILE, O_RDONLY | O_NONBLOCK);
     if (config_fd == -1) {
         log_debug("Failed to open the config file: %s", CONFIG_FILE);
         raise(SIGTERM);
     }
 
-    log_add_file_handler(JSON_FILE, "a+", LOG_INFO, "INFO_LOGS");
+    log_debug("%s", "Opening config file: %s", CONFIG_FILE);
+    log_add_file_handler(LOG_FILE, "a+", LOG_INFO, "INFO_LOGS");
     log_debug("LOG_FILE opened: %s", LOG_FILE);
     log_debug("Initializing an Fa_Notify instance");
+
     /*fanotify for mornitoring files.*/
     fan_fd = fanotify_init(FAN_CLOEXEC | FAN_NONBLOCK | FAN_REPORT_PIDFD, O_RDONLY | O_LARGEFILE);
     if (fan_fd == -1) {
@@ -83,18 +86,16 @@ int main(int argc, char *argv[]) {
 
     /*Watch the config dir for changes*/
     inotify_fd = init_inotify(CF_HOME_DIR);
-    if (inotify_fd == -1) {
-        raise(SIGTERM);
-    }
+    if (inotify_fd == -1) raise(SIGTERM);
 
-    log_debug("A valid Fa_Notify file descriptor: initialized");
+    log_debug("Initialized fanotify backend");
     conf = conf_parser(config_fd);
     if (conf == NULL || conf->watchlist_len == 0 || conf->watchlist->path == NULL) {
         log_error("%s: Add valid files and dirs to be watched", CONFIG_FILE);
         raise(SIGTERM);
     }
 
-    log_debug("Marking watchlist...");
+    log_debug("Marking watchlist");
     fan_mark_wraper(fan_fd, conf);
     conf_cleanup(conf);
     nfds = 2;
@@ -109,23 +110,19 @@ int main(int argc, char *argv[]) {
         poll_num = poll(fds, nfds, -1);
         if (poll_num == -1) {
             if (errno == EINTR) continue;
-
             log_error("Poll Failed: %s", strerror(errno));
             raise(SIGTERM);
         }
 
         if (poll_num > 0) {
             if (fds[0].revents & POLLIN) fan_event_handler(fan_fd, fp_log);
-
-            if (fds[1].revents & POLLIN) {
-                if (update_watchlist() == CUSTOM_ERR) continue;
-            }
+            if (fds[1].revents & POLLIN) update_watchlist();
         }
     }
 }
 
-int update_watchlist() {
-    if ((conf = inotify_event_handler(inotify_fd, config_fd, conf_parser)) == NULL) return CUSTOM_ERR;
+h4sh_status_t update_watchlist() {
+    if ((conf = inotify_event_handler(inotify_fd, config_fd, conf_parser)) == NULL) return H4SH_ERR;
     log_debug("CONFIG_FILE: %s Modified", CONFIG_FILE);
     log_debug("Flushing  watchlist");
     if (fanotify_mark(fan_fd, FAN_MARK_FLUSH, FAN_OPEN | FAN_MODIFY | FAN_EVENT_ON_CHILD, AT_FDCWD, NULL) == -1) {
@@ -135,7 +132,7 @@ int update_watchlist() {
 
     fan_mark_wraper(fan_fd, conf);
     conf_cleanup(conf);
-    return EXIT_SUCCESS;
+    return H4SH_OK;
 }
 
 static void fan_mark_wraper(int fd, config_t *config_obj) {
@@ -152,8 +149,8 @@ static void fan_mark_wraper(int fd, config_t *config_obj) {
 
 void signal_handler(int sig) {
     if (sig == SIGTERM || sig == SIGINT) {
-        close_json_f(fp_log);
         remove(LOCK_FILE);
+        if (fp_log != NULL) fclose(fp_log);
         close(config_fd);
         log_debug("%s", "Terminating h4shfsmon");
         exit(EXIT_SUCCESS);
@@ -161,10 +158,8 @@ void signal_handler(int sig) {
 }
 
 void help(char *argv) {
-    fprintf(stdout, "%s < -option >", argv);
-    fprintf(stdout,
-            "options\n -d: debug mode will prevent h4shfsmon from as "
-            "a daemon process\n");
+    fprintf(stdout, "%s < --option >", argv);
+    fprintf(stdout, "options\n -d: debug mode will prevent h4shfsmon from as  a daemon process\n");
 }
 
 static void parse_options(const int argc, char *argv[]) {
