@@ -9,12 +9,16 @@
 #define VERSION "v1.0.0"
 #define MAX_WATCH 200
 
-#define F_NT_FND -1
-#define F_IS_FILE 0
-#define F_IS_DIR 1
+typedef enum : int8_t {
+    F_NT_FND = -1,
+    F_IS_FILE = 0,
+    F_IS_DIR = 1,
+    F_IS_MNT = 2
+
+} fs_t;
 
 typedef struct {
-    size_t f_type;
+    fs_t type;
     char *path;
 } watch_t;
 

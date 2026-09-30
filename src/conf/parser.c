@@ -17,7 +17,7 @@ config_t *conf_parser(int conf_fd) {
     log_debug("Loading watchlist from the CONFIG_FILE: %s", CONFIG_FILE);
 
     char cc = 0;
-    struct stat path_stat = {0};
+    struct stat meta = {0};
     size_t i = 0, watch_len = 0, len = 0;
     uint8_t flag = 0;
     char buffer[PATH_MAX];
@@ -37,20 +37,26 @@ config_t *conf_parser(int conf_fd) {
 
         if (cc == 0x20 || (cc == '\n' && i == 0)) continue;
         if (cc == '\n') {
-            if (stat(buffer, &path_stat) != 0) {
+            if (buffer[0] == 0x023) {
+                i = 0;
+                continue;
+            }
+
+            buffer[i] = '\0';
+            if (stat(buffer, &meta) != 0) {
                 log_error("%s: Invalid File or Folder", buffer);
                 i = 0;
                 continue;
             }
 
-            if (path_stat.st_mode & S_IFDIR) flag = F_IS_DIR;
-            else if (path_stat.st_mode & S_IFREG) flag = F_IS_FILE;
+            if (meta.st_mode & S_IFDIR) flag = F_IS_DIR;
+            else if (meta.st_mode & S_IFREG) flag = F_IS_FILE;
+            else flag = F_NT_FND;
 
             i = 0;
             (conf->watchlist[watch_len].path) = strdup(buffer);
-            conf->watchlist[watch_len].f_type = flag;
+            conf->watchlist[watch_len].type = flag;
             conf->watchlist_len = ++watch_len;
-            memset(buffer, '\0', strnlen(buffer, PATH_MAX) + 1);
         } else buffer[i++] = cc;
     }
 

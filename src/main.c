@@ -1,6 +1,8 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include <linux/fanotify.h>
+#include <stdint.h>
 #include <time.h>
 #endif
 
@@ -78,7 +80,9 @@ int main(int argc, char *argv[]) {
     log_debug("Initializing an Fa_Notify instance");
 
     /*fanotify for mornitoring files.*/
-    fan_fd = fanotify_init(FAN_CLOEXEC | FAN_NONBLOCK | FAN_REPORT_PIDFD, O_RDONLY | O_LARGEFILE);
+    fan_fd = fanotify_init(FAN_CLASS_NOTIF | FAN_UNLIMITED_QUEUE | FAN_REPORT_DFID_NAME | FAN_REPORT_PIDFD | FAN_CLOEXEC
+                               | FAN_NONBLOCK | FAN_REPORT_PIDFD,
+                           O_RDONLY | O_LARGEFILE);
     if (fan_fd == -1) {
         log_debug("Failed to initializing an Fa_Notify instance: %s", strerror(errno));
         raise(SIGTERM);
@@ -125,7 +129,7 @@ h4sh_status_t update_watchlist() {
     if ((conf = inotify_event_handler(inotify_fd, config_fd, conf_parser)) == NULL) return H4SH_ERR;
     log_debug("CONFIG_FILE: %s Modified", CONFIG_FILE);
     log_debug("Flushing  watchlist");
-    if (fanotify_mark(fan_fd, FAN_MARK_FLUSH, FAN_OPEN | FAN_MODIFY | FAN_EVENT_ON_CHILD, AT_FDCWD, NULL) == -1) {
+    if (fanotify_mark(fan_fd, FAN_MARK_FLUSH, 0, AT_FDCWD, NULL) == -1) {
         log_error("Fanotify_Mark: Failed!!!");
         raise(SIGTERM);
     }
@@ -136,14 +140,23 @@ h4sh_status_t update_watchlist() {
 }
 
 static void fan_mark_wraper(int fd, config_t *config_obj) {
+    uint64_t mask = 0;
+    int flag = FAN_MARK_ADD;
+
     for (size_t i = 0; i < config_obj->watchlist_len; i++) {
-        if (fanotify_mark(fd, (config_obj->watchlist[i].f_type) ? FAN_MARK_ADD | FAN_MARK_ONLYDIR : FAN_MARK_ADD,
-                          FAN_OPEN | FAN_MODIFY | FAN_EVENT_ON_CHILD, AT_FDCWD, config_obj->watchlist[i].path)
-            == -1) {
-            log_error("Failed to mark files from config");
+        if (config_obj->watchlist[i].type == F_IS_DIR) {
+            mask = FAN_ACCESS | FAN_MODIFY | FAN_EVENT_ON_CHILD | FAN_RENAME | FAN_MOVED_TO | FAN_MOVED_FROM
+                   | FAN_DELETE;
+            flag |= FAN_MARK_ONLYDIR;
+        } else if (config_obj->watchlist[i].type == F_IS_FILE)
+            mask = FAN_ACCESS | FAN_MODIFY | FAN_DELETE_SELF | FAN_MOVE_SELF;
+
+        if (fanotify_mark(fd, flag, mask, AT_FDCWD, config_obj->watchlist[i].path) == -1) {
+            log_error("Failed to mark files from config: [ %s ] %s", config_obj->watchlist[i].path, strerror(errno));
             raise(SIGTERM);
         }
         log_debug("%s: Marked", config_obj->watchlist[i].path);
+        flag = FAN_MARK_ADD;  // reset flag
     }
 }
 

@@ -13,12 +13,12 @@ int init_inotify(char *file_path) {
     inotify_fd = inotify_init1(IN_NONBLOCK);
     if (inotify_fd == -1) {
         log_error("Failed to initialize inotify");
-        return CUSTOM_ERR;
+        return H4SH_ERR;
     }
 
     if (inotify_add_watch(inotify_fd, file_path, IN_MODIFY | IN_CREATE) == -1) {
         log_error("Add Watch Failure: %s ", strerror(errno));
-        return CUSTOM_ERR;
+        return H4SH_ERR;
     }
     return inotify_fd;
 }

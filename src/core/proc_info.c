@@ -1,8 +1,11 @@
 #include "logger.h"
 
+#include <asm-generic/errno-base.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,34 +25,74 @@ char *get_user(const uid_t uid) {
 void get_proc_info(pid_t pid, char *buffer[], size_t buf_max) {
     char procfd_path[64] = {0x0};
     char buf_temp[64] = {0x0};
-    FILE *proc_fd = NULL;
+    FILE *fp = NULL;
     size_t i = 0;
 
     snprintf(procfd_path, sizeof(procfd_path), "/proc/%d/status", pid);
-    if (access(procfd_path, F_OK) != 0) {
-        log_error("Effective process has terminated");
-        return;
-    }
-
-    if ((proc_fd = fopen(procfd_path, "r")) == NULL) {
+    if ((fp = fopen(procfd_path, "r")) == NULL) {
         log_error("Failed to open proc_fd: %s", strerror(errno));
         return;
     }
 
-    while (fgets(buf_temp, sizeof(buf_temp), proc_fd) != NULL && i < buf_max) {
+    while (fgets(buf_temp, sizeof(buf_temp), fp) != NULL && i < buf_max) {
         buf_temp[strlen(buf_temp) - 1] = '\0';
         if (buf_temp[0] != '\0') buffer[i] = strdup(buf_temp);
         i++;
     }
-    fclose(proc_fd);
+    fclose(fp);
 }
 
-h4sh_proc_info_t *tokenizer(char *buffer[]) {
+Str_t *get_proc_cmd(pid_t pid) {
+    char procfd_path[64] = {0x0};
+    char buf_temp[1024] = {0x0};
+    Str_t *cmd = NULL;
+    int fd = EOF;
+
+    snprintf(procfd_path, sizeof(procfd_path), "/proc/%d/cmdline", pid);
+    if ((fd = open(procfd_path, O_RDONLY | O_NONBLOCK)) == -1) {
+        log_error("Failed to open proc cmdline: %s", strerror(errno));
+        return NULL;
+    }
+
+    int retry = 5;
+    int ret = 0;
+    while ((ret = read(fd, buf_temp, 1024)) <= 0) {
+        log_error("Failed to read proc cmdline: %s", strerror(errno));
+        if (errno != EAGAIN || --retry <= 0) break;
+    }
+
+    if (ret <= 0) {
+        close(fd);
+        return NULL;
+    }
+
+    cmd = malloc(sizeof(Str_t) * ret + 1);
+    if (cmd == NULL) return NULL;
+
+    memcpy(cmd->str, buf_temp, ret);
+    cmd->len = ret;
+    close(fd);
+    return cmd;
+}
+
+void pre_cmd(Str_t *cmd) {
+    if (cmd == NULL) return;
+    size_t i = 0;
+    while (i < cmd->len - 1) {
+        if (cmd->str[i] == '\0') {
+            cmd->str[i++] = ' ';
+            continue;
+        }
+        i++;
+    }
+}
+
+proc_info_t *tokenizer(char *buffer[]) {
     size_t i = 0;
     char *saveptr = NULL;
     char *token = NULL;
-    h4sh_proc_info_t *proc_info = NULL;
-    if ((proc_info = calloc(0x1, sizeof(h4sh_proc_info_t))) == NULL) {
+    proc_info_t *proc_info = NULL;
+    if ((proc_info = calloc(0x1, sizeof(proc_info_t))) == NULL) {
         log_error("Failed to allocate memory: %s", strerror(errno));
         return NULL;
     }
@@ -91,7 +134,7 @@ h4sh_proc_info_t *tokenizer(char *buffer[]) {
     return proc_info;
 }
 
-void cleanup_procinfo(h4sh_proc_info_t *proc_info) {
+void cleanup_procinfo(proc_info_t *proc_info) {
     if (proc_info != NULL) {
         if (proc_info->date != NULL) free(proc_info->date);
         if (proc_info->cmd != NULL) free(proc_info->cmd);

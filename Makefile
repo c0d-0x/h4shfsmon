@@ -10,7 +10,7 @@ CFLAGS += -fsanitize-recover=address
 
 INCLUDE        := -Iinclude -Ilib
 
-LDLIBS         := -lm -ldl -lpthread
+LDLIBS         := -lm -ldl -lpthread -lhandle
 
 SRC            := $(wildcard src/*.c)
 CORE            := $(wildcard src/core/*.c)
