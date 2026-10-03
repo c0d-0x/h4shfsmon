@@ -8,19 +8,18 @@
 #include "core.h"
 #include "logger.h"
 
-int init_inotify(char *file_path) {
-    int inotify_fd;
-    inotify_fd = inotify_init1(IN_NONBLOCK);
-    if (inotify_fd == -1) {
+int init_inotify(char *path) {
+    int fd = inotify_init1(IN_NONBLOCK);
+    if (fd == -1) {
         log_error("Failed to initialize inotify");
         return H4SH_ERR;
     }
 
-    if (inotify_add_watch(inotify_fd, file_path, IN_MODIFY | IN_CREATE) == -1) {
-        log_error("Add Watch Failure: %s ", strerror(errno));
+    if (inotify_add_watch(fd, path, IN_MODIFY | IN_CREATE) == -1) {
+        log_error("Failed to watch config: %s", strerror(errno));
         return H4SH_ERR;
     }
-    return inotify_fd;
+    return fd;
 }
 
 config_t *inotify_event_handler(int inotify_fd, int config_fd, config_t *(*handler)(int config_fd)) {
@@ -31,14 +30,14 @@ config_t *inotify_event_handler(int inotify_fd, int config_fd, config_t *(*handl
 
     // TODO: Gaurds to watch only the config file.
     while ((len = read(inotify_fd, buffer, sizeof(buffer))) > 0) {
-        for (char *buf_prt = buffer; buf_prt < buffer + len; buf_prt += sizeof(struct inotify_event) + event->len) {
-            event = (struct inotify_event *) buf_prt;
+        for (char *buf_ptr = buffer; buf_ptr < buffer + len; buf_ptr += sizeof(struct inotify_event) + event->len) {
+            event = (struct inotify_event *) buf_ptr;
 
             if ((event->mask & IN_MODIFY) || (event->mask & IN_CREATE)) {
                 conf = handler(config_fd);
 
                 if (inotify_add_watch(inotify_fd, CF_HOME_DIR, IN_MODIFY | IN_CREATE) == -1) {
-                    log_error("Add Watch Failure: %s", strerror(errno));
+                    log_error("Failed to watch config: %s", strerror(errno));
                     raise(SIGTERM);
                 }
 
@@ -48,7 +47,7 @@ config_t *inotify_event_handler(int inotify_fd, int config_fd, config_t *(*handl
     }
 
     if (len == -1 && errno != EAGAIN) {
-        log_error("read syscall Failed: %s", strerror(errno));
+        log_error("Failed to read inotify fd: %s", strerror(errno));
         raise(SIGTERM);
     }
     return NULL;

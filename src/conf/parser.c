@@ -14,14 +14,15 @@
 #include "logger.h"
 
 config_t *conf_parser(int conf_fd) {
+    // TODO: rewrite to new config syntax
     log_debug("Loading watchlist from the CONFIG_FILE: %s", CONFIG_FILE);
 
     char cc = 0;
     struct stat meta = {0};
     size_t i = 0, watch_len = 0, len = 0;
     uint8_t flag = 0;
-    char buffer[PATH_MAX];
-    config_t *conf;
+    char buffer[PATH_MAX] = {0};
+    config_t *conf = NULL;
 
     if (lseek(conf_fd, 0, SEEK_SET) == -1) return NULL;
     if ((conf = calloc(0x1, sizeof(config_t))) == NULL) {
@@ -30,8 +31,7 @@ config_t *conf_parser(int conf_fd) {
     }
 
     while (watch_len < MAX_WATCH) {
-        len = read(conf_fd, &cc, sizeof(char));
-        if (len <= 0) {
+        if ((len = read(conf_fd, &cc, sizeof(char))) <= 0) {
             break;
         }
 
@@ -73,5 +73,4 @@ void conf_cleanup(config_t *conf) {
     log_debug("watchlist clean up");
     for (size_t i = 0; i < conf->watchlist_len; i++) free(conf->watchlist[i].path);
     free(conf);
-    conf = NULL;
 }

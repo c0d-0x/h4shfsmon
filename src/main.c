@@ -1,9 +1,6 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
-#include <linux/fanotify.h>
-#include <stdint.h>
-#include <time.h>
 #endif
 
 #ifndef _POSIX_C_SOURCE
@@ -14,11 +11,13 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/fanotify.h>
 #include <sys/poll.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "conf.h"
@@ -29,13 +28,12 @@ int config_fd;
 bool debug = true;
 FILE *fp_log = NULL;
 int fan_fd, inotify_fd;
-config_t *conf = NULL;
 
 void help(char *argv);
-h4sh_status_t update_watchlist();
 void signal_handler(int sig);
+h4sh_status_t update_watchlist(void);
 static void parse_options(const int argc, char *argv[]);
-static void fan_mark_wraper(int fd, config_t *config_obj);
+static void fan_mark_wraper(int fd, config_t *conf);
 
 int main(int argc, char *argv[]) {
     nfds_t nfds = 0;
@@ -43,6 +41,7 @@ int main(int argc, char *argv[]) {
     FILE *fp_lock = NULL;
     struct pollfd fds[2];
     struct sigaction sigact = {0};
+    config_t *conf = NULL;
 
     parse_options(argc, argv);
     if (check_lock(LOCK_FILE) != H4SH_OK) return EXIT_FAILURE;
@@ -74,7 +73,7 @@ int main(int argc, char *argv[]) {
         raise(SIGTERM);
     }
 
-    log_debug("%s", "Opening config file: %s", CONFIG_FILE);
+    log_debug("Opening config file: %s", CONFIG_FILE);
     log_add_file_handler(LOG_FILE, "a+", LOG_INFO, "INFO_LOGS");
     log_debug("LOG_FILE opened: %s", LOG_FILE);
     log_debug("Initializing an Fa_Notify instance");
@@ -102,6 +101,7 @@ int main(int argc, char *argv[]) {
     log_debug("Marking watchlist");
     fan_mark_wraper(fan_fd, conf);
     conf_cleanup(conf);
+    conf = NULL;
     nfds = 2;
     fds[0].fd = fan_fd;
     fds[0].events = POLLIN;
@@ -126,11 +126,11 @@ int main(int argc, char *argv[]) {
 }
 
 h4sh_status_t update_watchlist() {
+    config_t *conf = NULL;
     if ((conf = inotify_event_handler(inotify_fd, config_fd, conf_parser)) == NULL) return H4SH_ERR;
-    log_debug("CONFIG_FILE: %s Modified", CONFIG_FILE);
     log_debug("Flushing  watchlist");
     if (fanotify_mark(fan_fd, FAN_MARK_FLUSH, 0, AT_FDCWD, NULL) == -1) {
-        log_error("Fanotify_Mark: Failed!!!");
+        log_error("Failed to flush fanotify fd: %s", strerror(errno));
         raise(SIGTERM);
     }
 
@@ -139,23 +139,23 @@ h4sh_status_t update_watchlist() {
     return H4SH_OK;
 }
 
-static void fan_mark_wraper(int fd, config_t *config_obj) {
+static void fan_mark_wraper(int fd, config_t *conf) {
     uint64_t mask = 0;
     int flag = FAN_MARK_ADD;
 
-    for (size_t i = 0; i < config_obj->watchlist_len; i++) {
-        if (config_obj->watchlist[i].type == F_IS_DIR) {
-            mask = FAN_ACCESS | FAN_MODIFY | FAN_EVENT_ON_CHILD | FAN_RENAME | FAN_MOVED_TO | FAN_MOVED_FROM
-                   | FAN_DELETE;
+    for (size_t i = 0; i < conf->watchlist_len; i++) {
+        if (conf->watchlist[i].type == F_IS_DIR) {
+            mask = FAN_ACCESS | FAN_MODIFY | FAN_EVENT_ON_CHILD | FAN_MOVED_TO | FAN_MOVED_FROM | FAN_DELETE;
             flag |= FAN_MARK_ONLYDIR;
-        } else if (config_obj->watchlist[i].type == F_IS_FILE)
-            mask = FAN_ACCESS | FAN_MODIFY | FAN_DELETE_SELF | FAN_MOVE_SELF;
+        } else if (conf->watchlist[i].type == F_IS_FILE)
+            mask = FAN_ACCESS | FAN_MODIFY | FAN_DELETE_SELF | FAN_MOVE_SELF | FAN_MOVED_TO | FAN_MOVED_FROM;
+        else continue;
 
-        if (fanotify_mark(fd, flag, mask, AT_FDCWD, config_obj->watchlist[i].path) == -1) {
-            log_error("Failed to mark files from config: [ %s ] %s", config_obj->watchlist[i].path, strerror(errno));
-            raise(SIGTERM);
+        if (fanotify_mark(fd, flag, mask, AT_FDCWD, conf->watchlist[i].path) == -1) {
+            log_error("Failed to mark files from config: [ %s ] %s", conf->watchlist[i].path, strerror(errno));
+            continue;
         }
-        log_debug("%s: Marked", config_obj->watchlist[i].path);
+        log_debug("%s: Marked", conf->watchlist[i].path);
         flag = FAN_MARK_ADD;  // reset flag
     }
 }
@@ -164,7 +164,10 @@ void signal_handler(int sig) {
     if (sig == SIGTERM || sig == SIGINT) {
         remove(LOCK_FILE);
         if (fp_log != NULL) fclose(fp_log);
-        close(config_fd);
+        if (fan_fd > 0) close(fan_fd);
+        if (config_fd > 0) close(config_fd);
+        if (inotify_fd > 0) close(inotify_fd);
+
         log_debug("%s", "Terminating h4shfsmon");
         exit(EXIT_SUCCESS);
     }

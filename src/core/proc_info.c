@@ -1,8 +1,8 @@
 #include "logger.h"
 
-#include <asm-generic/errno-base.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/limits.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -24,7 +24,7 @@ char *get_user(const uid_t uid) {
 
 void get_proc_info(pid_t pid, char *buffer[], size_t buf_max) {
     char procfd_path[64] = {0x0};
-    char buf_temp[64] = {0x0};
+    char buf_temp[256] = {0x0};
     FILE *fp = NULL;
     size_t i = 0;
 
@@ -37,6 +37,7 @@ void get_proc_info(pid_t pid, char *buffer[], size_t buf_max) {
     while (fgets(buf_temp, sizeof(buf_temp), fp) != NULL && i < buf_max) {
         buf_temp[strlen(buf_temp) - 1] = '\0';
         if (buf_temp[0] != '\0') buffer[i] = strdup(buf_temp);
+        buf_temp[0] = '\0';
         i++;
     }
     fclose(fp);
@@ -44,7 +45,7 @@ void get_proc_info(pid_t pid, char *buffer[], size_t buf_max) {
 
 Str_t *get_proc_cmd(pid_t pid) {
     char procfd_path[64] = {0x0};
-    char buf_temp[1024] = {0x0};
+    char buf_temp[PATH_MAX] = {0x0};
     Str_t *cmd = NULL;
     int fd = EOF;
 
@@ -57,12 +58,14 @@ Str_t *get_proc_cmd(pid_t pid) {
     int retry = 5;
     int ret = 0;
     while ((ret = read(fd, buf_temp, 1024)) <= 0) {
-        log_error("Failed to read proc cmdline: %s", strerror(errno));
-        if (errno != EAGAIN || --retry <= 0) break;
+        if (errno != EAGAIN || --retry <= 0) {
+            log_error("Failed to read proc cmdline: %s", strerror(errno));
+            break;
+        }
     }
 
+    close(fd);
     if (ret <= 0) {
-        close(fd);
         return NULL;
     }
 
@@ -71,11 +74,11 @@ Str_t *get_proc_cmd(pid_t pid) {
 
     memcpy(cmd->str, buf_temp, ret);
     cmd->len = ret;
-    close(fd);
+    cmd->str[cmd->len] = '\0';
     return cmd;
 }
 
-void pre_cmd(Str_t *cmd) {
+void prep_cmd(Str_t *cmd) {
     if (cmd == NULL) return;
     size_t i = 0;
     while (i < cmd->len - 1) {
@@ -122,10 +125,8 @@ proc_info_t *tokenizer(char *buffer[]) {
 
             if (strncmp(token, "Uid", 3) == 0) {
                 token = strtok_r(NULL, "\t", &saveptr);
-                proc_info->username = strdup(get_user(atoi(token)));
+                proc_info->username = strdup(get_user((int) atol(token)));
             }
-            // log_debug("&buffer[%ld]: %p", i, buffer[i]);
-            // log_debug("&token: %p\n", token);
             free(buffer[i]);
             buffer[i] = NULL;
         }
@@ -134,7 +135,8 @@ proc_info_t *tokenizer(char *buffer[]) {
     return proc_info;
 }
 
-void cleanup_procinfo(proc_info_t *proc_info) {
+void cleanup_procinfo(void *data) {
+    proc_info_t *proc_info = (proc_info_t *) data;
     if (proc_info != NULL) {
         if (proc_info->date != NULL) free(proc_info->date);
         if (proc_info->cmd != NULL) free(proc_info->cmd);

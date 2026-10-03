@@ -7,7 +7,7 @@
 #define CONFIG_FILE ".config/cf.conf"
 #define CF_HOME_DIR ".config"
 #define VERSION "v1.0.0"
-#define MAX_WATCH 200
+#define MAX_WATCH 256
 
 typedef enum : int8_t {
     F_NT_FND = -1,
