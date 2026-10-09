@@ -1,5 +1,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include <stddef.h>
+#include <stdlib.h>
 #endif
 
 #ifndef _POSIX_C_SOURCE
@@ -25,7 +27,6 @@
 #include <syscall.h>
 #include <threads.h>
 #include <unistd.h>
-#include <xfs/handle.h>
 
 #include "core.h"
 #include "logger.h"
@@ -43,18 +44,18 @@ long get_file_size(char *path) {
 h4sh_status_t check_lock(char *path_lock) {
     if (access(path_lock, F_OK) == 0) {
         fprintf(stderr, "An instance of h4shfsmon is already running\n");
-        fprintf(stderr, "If no h4shfsmon instance is running, Delete '%s' file \n", LOCK_FILE);
+        fprintf(stderr, "If no h4shfsmon instance is running, Delete '%s' lock file \n", LOCK_FILE);
         return H4SH_OKK;
     }
 
+    int fd = -1;
     fprintf(stderr, "No instance of h4shfsmon running\n");
-    FILE *fp_lock = NULL;
-    if ((fp_lock = fopen(path_lock, "w")) == NULL) {
+    if ((fd = open(path_lock, O_CREAT | O_RDWR)) <= 0) {
         fprintf(stderr, "Failed to create lock file [ %s ]: %s\n", strerror(errno), path_lock);
         return H4SH_ERR;
     }
 
-    fclose(fp_lock);
+    close(fd);
     return H4SH_OK;
 }
 
@@ -94,14 +95,32 @@ static const char *ev_name(uint64_t mask) {
     return "UNKNOWN";
 }
 
+static void alloc_buff(char *buffer[], int size) {
+    for (int i = 0; i < size; i++) {
+        if ((buffer[i] = malloc(sizeof(char) * 256)) == NULL) OUT_OF_MEMORY();
+        buffer[i][0] = '\0';
+    }
+}
+
+static void free_buff(char *buffer[], int size) {
+    for (int i = 0; i < size; i++) free(buffer[i]);
+}
+
+static void write_info_log(proc_info_t *proc_info) {
+    log_info("%s %s %s %s %s %s %s", proc_info->event, EMPTY_TO_NULL(proc_info->name), EMPTY_TO_NULL(proc_info->Umask),
+             EMPTY_TO_NULL(proc_info->state), proc_info->username, proc_info->file, GET_STR(proc_info->cmd));
+}
+
 void fan_event_handler(int fan_fd, FILE *fp_log) {
     char buf[1096] __attribute__((aligned(__alignof__(struct fanotify_event_metadata)))) = {0};
-    char *buffer[11] = {NULL};
-    char path[PATH_MAX] = {0};
+    char *buffer[PROC_INFO_HEAD] = {NULL};
     proc_info_t *proc_info = NULL;
+    char path[PATH_MAX] = {0};
     Str_t *cmd = NULL;
-    Vec_t *gb_collector = NULL;
     ssize_t ret_len = 0;
+
+    alloc_buff(buffer, PROC_INFO_HEAD);
+    if ((proc_info = malloc(sizeof(proc_info_t))) == NULL) OUT_OF_MEMORY();
 
     while (true) {
         ret_len = read(fan_fd, buf, sizeof(buf));
@@ -113,7 +132,6 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
         }
 
         if (ret_len == 0) break;
-
         struct fanotify_event_metadata *meta = (struct fanotify_event_metadata *) buf;
         for (; FAN_EVENT_OK(meta, ret_len); meta = FAN_EVENT_NEXT(meta, ret_len)) {
             bool have_path = false;
@@ -122,8 +140,6 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
 
             if (meta->vers != FANOTIFY_METADATA_VERSION) {
                 log_error("Mismatch of fanotify metadata version");
-                vec_cleanup(gb_collector, cleanup_procinfo);
-                vec_destroy(gb_collector);
                 return;
             }
 
@@ -155,8 +171,7 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
 
             if (pidfd >= 0) close(pidfd);
             if (meta->fd >= 0) close(meta->fd);
-            proc_info = tokenizer(buffer);
-            if (proc_info == NULL) {
+            if ((tokenizer(buffer, proc_info)) == NULL) {
                 log_error("Failed to load effective process's info");
                 break;
             }
@@ -166,16 +181,14 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
             proc_info->file = have_path ? path : NULL;
             proc_info->event = (char *) ev_name(meta->mask);
 
-            log_info("%s %s %s %s %s %s %s", proc_info->event, proc_info->name, proc_info->Umask, proc_info->state,
-                     proc_info->username, proc_info->file, GET_STR(cmd));
-
-            vec_append(&gb_collector, (void *) proc_info);
-            proc_info = NULL;
+            write_info_log(proc_info);
+            proc_info->cmd = NULL;
+            free(cmd);
             cmd = NULL;
         }
     }
 
-    vec_cleanup(gb_collector, cleanup_procinfo);
-    vec_destroy(gb_collector);
     fflush(fp_log);
+    free_buff(buffer, PROC_INFO_HEAD);
+    cleanup_procinfo(proc_info);
 }

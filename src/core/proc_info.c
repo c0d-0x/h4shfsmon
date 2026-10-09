@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <pwd.h>
-#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,9 +33,14 @@ void get_proc_info(pid_t pid, char *buffer[], size_t buf_max) {
         return;
     }
 
+    int n = 0;
     while (fgets(buf_temp, sizeof(buf_temp), fp) != NULL && i < buf_max) {
-        buf_temp[strlen(buf_temp) - 1] = '\0';
-        if (buf_temp[0] != '\0') buffer[i] = strdup(buf_temp);
+        buffer[i][0] = '\0';
+        if ((n = strlen(buf_temp)) == 0) continue;
+
+        buf_temp[n - 1] = '\0';
+        strcpy(buffer[i], buf_temp);
+
         buf_temp[0] = '\0';
         i++;
     }
@@ -45,7 +49,7 @@ void get_proc_info(pid_t pid, char *buffer[], size_t buf_max) {
 
 Str_t *get_proc_cmd(pid_t pid) {
     char procfd_path[64] = {0x0};
-    char buf_temp[PATH_MAX] = {0x0};
+    char buff[PATH_MAX] = {0x0};
     Str_t *cmd = NULL;
     int fd = EOF;
 
@@ -57,7 +61,7 @@ Str_t *get_proc_cmd(pid_t pid) {
 
     int retry = 5;
     int ret = 0;
-    while ((ret = read(fd, buf_temp, 1024)) <= 0) {
+    while ((ret = read(fd, buff, 1024)) <= 0) {
         if (errno != EAGAIN || --retry <= 0) {
             log_error("Failed to read proc cmdline: %s", strerror(errno));
             break;
@@ -69,10 +73,10 @@ Str_t *get_proc_cmd(pid_t pid) {
         return NULL;
     }
 
-    cmd = malloc(sizeof(Str_t) * ret + 1);
+    cmd = malloc(sizeof(Str_t) + (sizeof(char) * ret) + 1);
     if (cmd == NULL) return NULL;
 
-    memcpy(cmd->str, buf_temp, ret);
+    memcpy(cmd->str, buff, ret);
     cmd->len = ret;
     cmd->str[cmd->len] = '\0';
     return cmd;
@@ -90,47 +94,56 @@ void prep_cmd(Str_t *cmd) {
     }
 }
 
-proc_info_t *tokenizer(char *buffer[]) {
+static proc_token_t str_to_token(char *token) {
+    if (strncmp(token, "Name", 4) == 0) return PROC_NAME;
+    if (strncmp(token, "Umask", 5) == 0) return PROC_UMASK;
+    if (strncmp(token, "State", 5) == 0) return PROC_STATE;
+    if (strncmp(token, "Uid", 3) == 0) return PROC_UID;
+    return PROC_UNKNOWN;
+}
+
+proc_info_t *tokenizer(char *buffer[], proc_info_t *proc_info) {
     size_t i = 0;
     char *saveptr = NULL;
-    char *token = NULL;
-    proc_info_t *proc_info = NULL;
-    if ((proc_info = calloc(0x1, sizeof(proc_info_t))) == NULL) {
-        log_error("Failed to allocate memory: %s", strerror(errno));
-        return NULL;
-    }
-
-    while (i < 11) {
-        if (buffer[i] != NULL) {
-            token = strtok_r(buffer[i], ":\t\r ", &saveptr);
-            if (token == NULL) {
-                log_debug("Failed to load proc info\n");
-                raise(SIGTERM);
-            }
-
-            if (strncmp(token, "Name", 4) == 0) {
-                token = strtok_r(NULL, "\t ", &saveptr);
-                proc_info->name = strdup(token);
-            }
-
-            if (strncmp(token, "Umask", 5) == 0) {
-                token = strtok_r(NULL, "\t ", &saveptr);
-                proc_info->Umask = strdup(token);
-            }
-
-            if (strncmp(token, "State", 5) == 0) {
-                token = strtok_r(NULL, "\t ", &saveptr);
-                proc_info->state = strdup(saveptr);
-            }
-
-            if (strncmp(token, "Uid", 3) == 0) {
-                token = strtok_r(NULL, "\t", &saveptr);
-                proc_info->username = strdup(get_user((int) atol(token)));
-            }
-            free(buffer[i]);
-            buffer[i] = NULL;
+    char *str_token = NULL;
+    memset(proc_info, '\0', sizeof(proc_info_t));
+    while (i < PROC_INFO_HEAD) {
+        if (buffer[i] == NULL || buffer[i][0] == '\0') {
+            i++;
+            continue;
         }
-        i++;
+
+        str_token = strtok_r(buffer[i], ":\t\r ", &saveptr);
+        if (str_token == NULL) {
+            i++;
+            log_debug("Failed to tokenize proc info\n");
+            continue;
+        }
+
+        switch (str_to_token(str_token)) {
+            case PROC_NAME:
+                if ((str_token = strtok_r(NULL, "\t ", &saveptr)) != NULL) strcpy(proc_info->name, str_token);
+                else *proc_info->name = '\0';
+                break;
+            case PROC_STATE:
+                if ((str_token = strtok_r(NULL, "\t ", &saveptr)) != NULL) strcpy(proc_info->state, str_token);
+                else *proc_info->state = '\0';
+                break;
+            case PROC_UID:
+                if ((str_token = strtok_r(NULL, "\t", &saveptr)) != NULL) {
+                    int uid = str_token ? (int) atol(str_token) : -1;
+                    proc_info->username = get_user(uid);
+                }
+                break;
+            case PROC_UMASK:
+                if ((str_token = strtok_r(NULL, "\t ", &saveptr)) != NULL) strcpy(proc_info->Umask, str_token);
+                else *proc_info->Umask = '\0';
+                break;
+
+            default: break;
+        }
+
+        buffer[i++][0] = '\0';
     }
     return proc_info;
 }
@@ -138,12 +151,6 @@ proc_info_t *tokenizer(char *buffer[]) {
 void cleanup_procinfo(void *data) {
     proc_info_t *proc_info = (proc_info_t *) data;
     if (proc_info != NULL) {
-        if (proc_info->date != NULL) free(proc_info->date);
-        if (proc_info->cmd != NULL) free(proc_info->cmd);
-        if (proc_info->username != NULL) free(proc_info->username);
-        if (proc_info->name != NULL) free(proc_info->name);
-        if (proc_info->state != NULL) free(proc_info->state);
-        if (proc_info->Umask != NULL) free(proc_info->Umask);
         free(proc_info);
     }
 }

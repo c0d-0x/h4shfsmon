@@ -129,9 +129,9 @@ h4sh_status_t update_watchlist() {
     config_t *conf = NULL;
     if ((conf = inotify_event_handler(inotify_fd, config_fd, conf_parser)) == NULL) return H4SH_ERR;
     log_debug("Flushing  watchlist");
-    if (fanotify_mark(fan_fd, FAN_MARK_FLUSH, 0, AT_FDCWD, NULL) == -1) {
+    if (fanotify_mark(fan_fd, FAN_MARK_FLUSH, 0, AT_FDCWD, NULL) == H4SH_ERR) {
         log_error("Failed to flush fanotify fd: %s", strerror(errno));
-        raise(SIGTERM);
+        return H4SH_ERR;
     }
 
     fan_mark_wraper(fan_fd, conf);
