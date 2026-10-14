@@ -48,7 +48,7 @@ h4sh_status_t check_lock(char *path_lock) {
 
     int fd = -1;
     fprintf(stderr, "No instance of h4shfsmon running\n");
-    if ((fd = open(path_lock, O_CREAT | O_RDWR)) <= 0) {
+    if ((fd = open(path_lock, O_CREAT, S_IRUSR | S_IWUSR)) <= 0) {
         fprintf(stderr, "Failed to create lock file [ %s ]: %s\n", strerror(errno), path_lock);
         return H4SH_ERR;
     }
