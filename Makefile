@@ -11,12 +11,15 @@ CFLAGS += -fsanitize-recover=address
 INCLUDE        := -Iinclude -Ilib
 
 LDLIBS         := -lm -ldl -lpthread -lhandle
+LDLIBS		   += $(shell pkg-config --cflags --libs openssl)
 
-SRC            := $(wildcard src/*.c)
+
+MAIN            := $(wildcard src/main.c)
 CORE            := $(wildcard src/core/*.c)
-CONF           := $(wildcard src/conf/*.c)
-EVENT		   := $(wildcard src/event/*.c)
-ALL_SRC        := $(SRC) $(CONF) $(CORE) $(EVENT)
+CONF            := $(wildcard src/conf/*.c)
+EVENT		    := $(wildcard src/event/*.c)
+ALL_SRC         := $(MAIN) $(CONF) $(CORE) $(EVENT)
+
 
 OBJ            := $(ALL_SRC:src/%.c=build/%.o)
 

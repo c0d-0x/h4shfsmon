@@ -29,36 +29,36 @@ typedef enum : uint8_t {
     PROC_STATE,
     PROC_UID,
     PROC_UNKNOWN
-
 } proc_token_t;
 
 typedef struct {
-    char *file;
+    char *raw[PROC_INFO_HEAD];
+    volatile char *file;
+    volatile char *event;
+    volatile char *username;
     Str_t *cmd;
-    char *event;
-    char *username;
+    char name[PROC_INFO_NAME_MAX];
     char state[PROC_INFO_STATE_MAX];
     char Umask[PROC_INFO_UMASK_MAX];
-    char name[PROC_INFO_NAME_MAX];
-
 } proc_info_t;
 
 typedef struct {
     char *path;
-    uint friq;  // for rate limiting
+    float friq;  // for rate limiting
     uint64_t last_modified;
     uint64_t created;
     uint64_t size;
     Str_t *hash;
 } h4sh_file_t;
 
-void get_proc_info(pid_t pid, char *buffer[], size_t buf_max);
-Str_t *get_proc_cmd(pid_t pid);
+proc_info_t *new_proc_info(void);
+void cleanup_procinfo(void *data);
+void get_proc_info(pid_t pid, char *seg[]);
+void get_proc_cmd(pid_t pid, Str_t *cmd);
 void prep_cmd(Str_t *cmd);
 
-void cleanup_procinfo(void *data);
-proc_info_t *tokenizer(char *buffer[], proc_info_t *proc_info);
-void fan_event_handler(int fan_fd, FILE *fp_log);
+proc_info_t *tokenizer(proc_info_t *proc_info);
+void fan_event_handler(int fan_fd, FILE *fp_log, proc_info_t *proc_info);
 h4sh_status_t check_lock(char *path_lock);
 
 #endif

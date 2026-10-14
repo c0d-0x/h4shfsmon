@@ -14,7 +14,6 @@ typedef enum : int8_t {
     F_IS_FILE = 0,
     F_IS_DIR = 1,
     F_IS_MNT = 2
-
 } fs_t;
 
 typedef struct {

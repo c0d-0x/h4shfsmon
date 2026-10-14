@@ -22,11 +22,11 @@
     } while (0)
 
 #define OUT_OF_MEMORY() FATAL("Out of memory")
-#define GET_STR(obj) (obj) ? obj->str : NULL
 #define EMPTY_TO_NULL(str) ((str)[0] != '\0') ? (str) : NULL
+#define GET_STR(obj) ((obj) != NULL && ((obj)->str[0] != '\0') && ((obj)->len > 0)) ? (obj)->str : NULL
 
 typedef struct {
-    size_t len;
+    ssize_t len;
     char str[];
 } Str_t;
 

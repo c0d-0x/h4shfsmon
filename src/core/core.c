@@ -1,7 +1,5 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
-#include <stddef.h>
-#include <stdlib.h>
 #endif
 
 #ifndef _POSIX_C_SOURCE
@@ -95,35 +93,19 @@ static const char *ev_name(uint64_t mask) {
     return "UNKNOWN";
 }
 
-static void alloc_buff(char *buffer[], int size) {
-    for (int i = 0; i < size; i++) {
-        if ((buffer[i] = malloc(sizeof(char) * 256)) == NULL) OUT_OF_MEMORY();
-        buffer[i][0] = '\0';
-    }
-}
-
-static void free_buff(char *buffer[], int size) {
-    for (int i = 0; i < size; i++) free(buffer[i]);
-}
-
 static void write_info_log(proc_info_t *proc_info) {
-    log_info("%s %s %s %s %s %s %s", proc_info->event, EMPTY_TO_NULL(proc_info->name), EMPTY_TO_NULL(proc_info->Umask),
-             EMPTY_TO_NULL(proc_info->state), proc_info->username, proc_info->file, GET_STR(proc_info->cmd));
+    log_info("%s %s %s %s %s %s '%s'", proc_info->event, EMPTY_TO_NULL(proc_info->name),
+             EMPTY_TO_NULL(proc_info->Umask), EMPTY_TO_NULL(proc_info->state), proc_info->username, proc_info->file,
+             GET_STR((proc_info->cmd)));
 }
 
-void fan_event_handler(int fan_fd, FILE *fp_log) {
-    char buf[1096] __attribute__((aligned(__alignof__(struct fanotify_event_metadata)))) = {0};
-    char *buffer[PROC_INFO_HEAD] = {NULL};
-    proc_info_t *proc_info = NULL;
+void fan_event_handler(int fan_fd, FILE *fp_log, proc_info_t *proc_info) {
+    char event_buf[1024] __attribute__((aligned(__alignof__(struct fanotify_event_metadata)))) = {0};
     char path[PATH_MAX] = {0};
-    Str_t *cmd = NULL;
     ssize_t ret_len = 0;
 
-    alloc_buff(buffer, PROC_INFO_HEAD);
-    if ((proc_info = malloc(sizeof(proc_info_t))) == NULL) OUT_OF_MEMORY();
-
     while (true) {
-        ret_len = read(fan_fd, buf, sizeof(buf));
+        ret_len = read(fan_fd, event_buf, sizeof(event_buf));
         if (ret_len == -1) {
             if (errno == EAGAIN) break;
             if (errno == EINTR) continue;
@@ -132,7 +114,7 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
         }
 
         if (ret_len == 0) break;
-        struct fanotify_event_metadata *meta = (struct fanotify_event_metadata *) buf;
+        struct fanotify_event_metadata *meta = (struct fanotify_event_metadata *) event_buf;
         for (; FAN_EVENT_OK(meta, ret_len); meta = FAN_EVENT_NEXT(meta, ret_len)) {
             bool have_path = false;
             int pidfd = -1;
@@ -148,8 +130,8 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
                 continue;
             }
 
-            get_proc_info(meta->pid, buffer, 11);
-            cmd = get_proc_cmd(meta->pid);
+            get_proc_info(meta->pid, proc_info->raw);
+            get_proc_cmd(meta->pid, proc_info->cmd);
 
             struct fanotify_event_info_header *hdr
                 = (struct fanotify_event_info_header *) ((char *) meta + meta->metadata_len);
@@ -171,24 +153,18 @@ void fan_event_handler(int fan_fd, FILE *fp_log) {
 
             if (pidfd >= 0) close(pidfd);
             if (meta->fd >= 0) close(meta->fd);
-            if ((tokenizer(buffer, proc_info)) == NULL) {
+            if ((tokenizer(proc_info)) == NULL) {
                 log_error("Failed to load effective process's info");
                 break;
             }
 
-            if (cmd != NULL) prep_cmd(cmd);
-            proc_info->cmd = cmd;
+            if (proc_info->cmd != NULL) prep_cmd(proc_info->cmd);
             proc_info->file = have_path ? path : NULL;
             proc_info->event = (char *) ev_name(meta->mask);
 
             write_info_log(proc_info);
-            proc_info->cmd = NULL;
-            free(cmd);
-            cmd = NULL;
         }
     }
 
     fflush(fp_log);
-    free_buff(buffer, PROC_INFO_HEAD);
-    cleanup_procinfo(proc_info);
 }

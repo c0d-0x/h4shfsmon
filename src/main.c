@@ -28,6 +28,7 @@ int config_fd;
 bool debug = true;
 FILE *fp_log = NULL;
 int fan_fd, inotify_fd;
+proc_info_t *proc_info = NULL;
 
 void help(char *argv);
 void signal_handler(int sig);
@@ -108,6 +109,7 @@ int main(int argc, char *argv[]) {
 
     fds[1].fd = inotify_fd;
     fds[1].events = POLLIN;
+    proc_info = new_proc_info();
 
     log_debug("Listening for events\n");
     while (true) {
@@ -119,7 +121,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (poll_num > 0) {
-            if (fds[0].revents & POLLIN) fan_event_handler(fan_fd, fp_log);
+            if (fds[0].revents & POLLIN) fan_event_handler(fan_fd, fp_log, proc_info);
             if (fds[1].revents & POLLIN) update_watchlist();
         }
     }
@@ -161,16 +163,16 @@ static void fan_mark_wraper(int fd, config_t *conf) {
 }
 
 void signal_handler(int sig) {
-    if (sig == SIGTERM || sig == SIGINT) {
-        remove(LOCK_FILE);
-        if (fp_log != NULL) fclose(fp_log);
-        if (fan_fd > 0) close(fan_fd);
-        if (config_fd > 0) close(config_fd);
-        if (inotify_fd > 0) close(inotify_fd);
+    if (sig != SIGTERM && sig != SIGINT) return;
 
-        log_debug("%s", "Terminating h4shfsmon");
-        exit(EXIT_SUCCESS);
-    }
+    if (fp_log != NULL) fclose(fp_log);
+    if (fan_fd > 0) close(fan_fd);
+    if (config_fd > 0) close(config_fd);
+    if (inotify_fd > 0) close(inotify_fd);
+    if (proc_info != NULL) cleanup_procinfo((void *) proc_info);
+    log_debug("%s", "Terminating h4shfsmon");
+    remove(LOCK_FILE);
+    exit(EXIT_SUCCESS);
 }
 
 void help(char *argv) {
