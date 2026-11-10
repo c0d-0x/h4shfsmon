@@ -13,7 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "logger.h"
-#include "util.h"
+#include "utils.h"
 
 hash_engin_t *new_hash_engin(void) {
     hash_engin_t *engin = malloc(sizeof(hash_engin_t));

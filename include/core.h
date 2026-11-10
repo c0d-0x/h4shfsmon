@@ -5,10 +5,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/types.h>
-#include "util.h"
+#include "utils.h"
 
-#define LOG_FILE "cf_log.txt"
-#define LOCK_FILE "cf.lock"
+#define LOG_FILE "h4shfsmon_log.txt"
+#define LOCK_FILE "h4shfsmon.lock"
 #define HASH_SIZE 256
 #define PROC_INFO_HEAD 11
 #define PROC_INFO_NAME_MAX 16
@@ -57,7 +57,7 @@ void get_proc_info(pid_t pid, char *seg[]);
 void get_proc_cmd(pid_t pid, Str_t *cmd);
 void prep_cmd(Str_t *cmd);
 
-proc_info_t *tokenizer(proc_info_t *proc_info);
+bool tokenizer(proc_info_t *proc_info);
 void fan_event_handler(int fan_fd, FILE *fp_log, proc_info_t *proc_info);
 h4sh_status_t check_lock(char *path_lock);
 

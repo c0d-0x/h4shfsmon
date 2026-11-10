@@ -1,5 +1,5 @@
-#ifndef UTIL_H
-#define UTIL_H
+#ifndef UTILS_H
+#define UTILS_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -30,7 +30,7 @@ typedef struct {
     char str[];
 } Str_t;
 
-#ifdef USE_VECTORS
+#ifdef UTILS_USE_VECTORS
 
 // Vector
 typedef struct {
@@ -44,9 +44,9 @@ void vec_destroy(Vec_t *vec);
 void ver_cleanup(Vec_t *vec, void (*cleanup_callback)(void *data));
 bool vec_append(Vec_t **vec, void *data);
 
-#endif  //! USE_VECTORS
+#endif  //! UTILS_USE_VECTORS
 
-#ifdef USE_VIEWS
+#ifdef UTILS_USE_VIEWS
 // String view
 typedef struct {
     int64_t len;
@@ -76,11 +76,10 @@ View_t view_trim_right(View_t *view);
 bool view_eq_case(View_t *viewa, View_t *viewb);
 bool view_starts_with_case(View_t *view, View_t *prefix);
 bool view_to_u32(View_t *view, uint32_t *out);
-char *view_to_cstr(View_t *view);
 
-#endif  //! USE_VIEWS
+#endif  //! UTILS_USE_VIEWS
 
-#ifdef USE_QUEUES
+#ifdef UTILS_USE_QUEUES
 // Queue
 typedef struct {
     int size;
@@ -95,12 +94,12 @@ void *dequeue(Queue_t *queue);
 bool queue_full(Queue_t *queue);
 bool queue_empty(Queue_t *queue);
 void queue_free(Queue_t **queue);
-#endif  //! USE_QUEUES
+#endif  //! UTILS_USE_QUEUES
 
 // #define UTIL_IMPL
-#ifdef UTIL_IMPL
+#ifdef UTILS_IMPL
 
-#ifdef USE_VIEWS
+#ifdef UTILS_USE_VIEWS
 
 static inline char ascii_tolower(char cc) {
     if (cc >= 'A' && cc <= 'Z') return cc + ('a' - 'A');
@@ -120,7 +119,9 @@ View_t view(const char *data, int64_t len) {
 
 View_t view_cstr(const char *str) {
     if (str == NULL) return (View_t) {.str = NULL, .len = 0};
-    return (View_t) {.str = (char *) str, .len = strlen(str)};
+    View_t view = (View_t) {.str = (char *) str, .len = strlen(str)};
+    view = view_trim(&view);
+    return view;
 }
 
 View_t view_slice(View_t *view, int64_t offset, int64_t len) {
@@ -149,7 +150,6 @@ bool view_eq(View_t *viewa, View_t *viewb) {
 
     if (empty_a && empty_b) return true;
     if (empty_a || empty_b) return false;
-    if (viewa->len != viewb->len) return false;
 
     return memcmp(viewa->str, viewb->str, viewa->len) == 0;
 }
@@ -186,18 +186,16 @@ int64_t view_find_char(View_t *view, char cc, int64_t start_offset) {
 }
 
 bool view_split(View_t *view, char delim, View_t *left, View_t *right) {
-    if (view == NULL || view->str == NULL || left == NULL || right == NULL) return false;
+    if (view == NULL || view->str == NULL) return false;
 
     int64_t idx = view_find_char(view, delim, 0);
     if (idx == NOT_FOUND) {
-        *left = *view;
-        *right = (View_t) {.str = NULL, .len = 0};
         return false;
     }
 
-    *left = (View_t) {.str = view->str, .len = idx};
-    if (idx + 1 >= view->len) *right = (View_t) {.str = NULL, .len = 0};
-    else *right = (View_t) {.str = view->str + (idx + 1), .len = view->len - (idx + 1)};
+    if (left != NULL) *left = (View_t) {.str = view->str, .len = idx};
+    if (idx + 1 >= view->len && right != NULL) *right = (View_t) {.str = NULL, .len = 0};
+    else if (right != NULL) *right = (View_t) {.str = view->str + (idx + 1), .len = view->len - (idx + 1)};
 
     return true;
 }
@@ -211,7 +209,7 @@ View_t view_trim_left(View_t *view) {
     if (view == NULL || view->str == NULL) return (View_t) {.str = NULL, .len = 0};
 
     int64_t start = 0;
-    while (start < view->len && ascii_isspace(view->str[start++]));
+    while (start < view->len && ascii_isspace(view->str[start])) start++;
 
     if (start >= view->len) return (View_t) {.str = NULL, .len = 0};
     return (View_t) {.str = view->str + start, .len = view->len - start};
@@ -221,7 +219,7 @@ View_t view_trim_right(View_t *view) {
     if (view == NULL || view->str == NULL || view->len == 0) return (View_t) {.str = NULL, .len = 0};
 
     int64_t end = view->len;
-    while (end > 0 && ascii_isspace(view->str[--end]));
+    while (end > 0 && ascii_isspace(view->str[end])) --end;
 
     if (end == 0) return (View_t) {.str = NULL, .len = 0};
     return (View_t) {.str = view->str, .len = end};
@@ -233,7 +231,6 @@ bool view_eq_case(View_t *viewa, View_t *viewb) {
 
     if (empty_a && empty_b) return true;
     if (empty_a || empty_b) return false;
-    if (viewa->len != viewb->len) return false;
     for (int64_t i = 0; i < viewa->len; i++) {
         if (ascii_tolower(viewa->str[i]) != ascii_tolower(viewb->str[i])) return false;
     }
@@ -256,8 +253,9 @@ bool view_to_u32(View_t *view, uint32_t *out) {
     if (view == NULL || view->str == NULL || view->len == 0 || out == NULL) return false;
 
     uint64_t val = 0;
-    for (int64_t i = 0; i < view->len; i++) {
-        char cc = view->str[i];
+    View_t tmp = view_trim(view);
+    for (int64_t i = 0; i < tmp.len; i++) {
+        char cc = tmp.str[i];
         if (cc < '0' || cc > '9') return false;
 
         val = val * 10 + (cc - '0');
@@ -278,9 +276,9 @@ char *view_to_cstr(View_t *view) {
     return dest;
 }
 
-#endif  //! USE_VIEWS
+#endif  //! UTILS_USE_VIEWS
 
-#ifdef USE_QUEUES
+#ifdef UTILS_USE_QUEUES
 
 // Queues
 bool enqueue(Queue_t **queue, void *data) {
@@ -328,9 +326,9 @@ void queue_free(Queue_t **queue) {
     *queue = NULL;
 }
 
-#endif  //! USE_QUEUES
+#endif  //! UTILS_USE_QUEUES
 
-#ifdef USE_VECTORS
+#ifdef UTILS_USE_VECTORS
 // Vectors
 
 bool vec_append(Vec_t **vec, void *data) {
@@ -370,6 +368,6 @@ void *vec_pop(Vec_t *vec) {
 
 void vec_destroy(Vec_t *vec) { free(vec); }
 
-#endif  //! USE_VECTORS
-#endif  // UTIL_IMPL
+#endif  //! UTILS_USE_VECTORS
+#endif  // UTILS_IMPL
 #endif  // !UTIL_H

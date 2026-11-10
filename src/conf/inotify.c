@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <signal.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/inotify.h>
 #include <unistd.h>
@@ -22,7 +23,7 @@ int init_inotify(char *path) {
     return fd;
 }
 
-config_t *inotify_event_handler(int inotify_fd, int config_fd, config_t *(*handler)(int config_fd)) {
+config_t *inotify_event_handler(int inotify_fd, FILE *config_fd, config_t *(*handler)(FILE *config_fd)) {
     int len = 0;
     config_t *conf = NULL;
     struct inotify_event *event = NULL;

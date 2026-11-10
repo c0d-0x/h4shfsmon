@@ -1,6 +1,7 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include <string.h>
 #endif
 
 #ifndef _POSIX_C_SOURCE
@@ -24,7 +25,7 @@
 #include "core.h"
 #include "logger.h"
 
-int config_fd;
+FILE *config_fp;
 bool debug = true;
 FILE *fp_log = NULL;
 int fan_fd, inotify_fd;
@@ -68,8 +69,7 @@ int main(int argc, char *argv[]) {
     }
 
     log_debug("%s", "Made reception for signals");
-    config_fd = open(CONFIG_FILE, O_RDONLY | O_NONBLOCK);
-    if (config_fd == -1) {
+    if ((config_fp = fopen(CONFIG_FILE, "r")) == NULL) {
         log_debug("Failed to open the config file: %s", CONFIG_FILE);
         raise(SIGTERM);
     }
@@ -93,8 +93,8 @@ int main(int argc, char *argv[]) {
     if (inotify_fd == -1) raise(SIGTERM);
 
     log_debug("Initialized fanotify backend");
-    conf = conf_parser(config_fd);
-    if (conf == NULL || conf->watchlist_len == 0 || conf->watchlist->path == NULL) {
+    conf = conf_parser(config_fp);
+    if (conf == NULL || conf->len == 0 || conf->watchlist->path == NULL) {
         log_error("%s: Add valid files and dirs to be watched", CONFIG_FILE);
         raise(SIGTERM);
     }
@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
 
 h4sh_status_t update_watchlist() {
     config_t *conf = NULL;
-    if ((conf = inotify_event_handler(inotify_fd, config_fd, conf_parser)) == NULL) return H4SH_ERR;
+    if ((conf = inotify_event_handler(inotify_fd, config_fp, conf_parser)) == NULL) return H4SH_ERR;
     log_debug("Flushing  watchlist");
     if (fanotify_mark(fan_fd, FAN_MARK_FLUSH, 0, AT_FDCWD, NULL) == H4SH_ERR) {
         log_error("Failed to flush fanotify fd: %s", strerror(errno));
@@ -145,7 +145,7 @@ static void fan_mark_wraper(int fd, config_t *conf) {
     uint64_t mask = 0;
     int flag = FAN_MARK_ADD;
 
-    for (size_t i = 0; i < conf->watchlist_len; i++) {
+    for (size_t i = 0; i < conf->len; i++) {
         if (conf->watchlist[i].type == F_IS_DIR) {
             mask = FAN_ACCESS | FAN_MODIFY | FAN_EVENT_ON_CHILD | FAN_MOVED_TO | FAN_MOVED_FROM | FAN_DELETE;
             flag |= FAN_MARK_ONLYDIR;
@@ -167,7 +167,7 @@ void signal_handler(int sig) {
 
     if (fp_log != NULL) fclose(fp_log);
     if (fan_fd > 0) close(fan_fd);
-    if (config_fd > 0) close(config_fd);
+    if (config_fp != NULL) fclose(config_fp);
     if (inotify_fd > 0) close(inotify_fd);
     if (proc_info != NULL) cleanup_procinfo((void *) proc_info);
     log_debug("%s", "Terminating h4shfsmon");

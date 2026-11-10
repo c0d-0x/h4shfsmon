@@ -7,8 +7,9 @@
 #endif
 
 #define LOGGER_IMPL
-#define UTIL_IMPL
-#define USE_VECTORS
+#define UTILS_IMPL
+#define UTILS_USE_VECTORS
+#define UTILS_USE_VIEWS
 
 #include <errno.h>
 #include <fcntl.h>
@@ -28,7 +29,7 @@
 
 #include "core.h"
 #include "logger.h"
-#include "util.h"
+#include "utils.h"
 
 long get_file_size(char *path) {
     struct stat meta = {0};
@@ -153,7 +154,7 @@ void fan_event_handler(int fan_fd, FILE *fp_log, proc_info_t *proc_info) {
 
             if (pidfd >= 0) close(pidfd);
             if (meta->fd >= 0) close(meta->fd);
-            if ((tokenizer(proc_info)) == NULL) {
+            if ((!tokenizer(proc_info))) {
                 log_error("Failed to load effective process's info");
                 break;
             }
@@ -161,7 +162,6 @@ void fan_event_handler(int fan_fd, FILE *fp_log, proc_info_t *proc_info) {
             if (proc_info->cmd != NULL) prep_cmd(proc_info->cmd);
             proc_info->file = have_path ? path : NULL;
             proc_info->event = (char *) ev_name(meta->mask);
-
             write_info_log(proc_info);
         }
     }

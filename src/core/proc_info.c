@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 #include "core.h"
-#include "util.h"
+#include "utils.h"
 
 char *get_user(const uid_t uid) {
     struct passwd *pws;
@@ -110,12 +110,12 @@ static proc_token_t cstr_to_token(char *token) {
     return PROC_UNKNOWN;
 }
 
-proc_info_t *tokenizer(proc_info_t *proc_info) {
-    size_t i = 0;
+bool tokenizer(proc_info_t *proc_info) {
+    if (proc_info == NULL) return false;
     char *saveptr = NULL;
     char *str_token = NULL;
 
-    while (i < PROC_INFO_HEAD) {
+    for (int i = 0; i < PROC_INFO_HEAD; i++) {
         if (proc_info->raw[i] != NULL && proc_info->raw[i][0] != '\0') {
             str_token = strtok_r(proc_info->raw[i], ":\t\r\n ", &saveptr);
             if (str_token == NULL) {
@@ -144,10 +144,9 @@ proc_info_t *tokenizer(proc_info_t *proc_info) {
                 default: break;
             }
         }
-        i++;
     }
 
-    return proc_info;
+    return true;
 }
 
 char *get_locale_time(void) {
