@@ -56,12 +56,14 @@ config_t *conf_parser(FILE *conf_fp) {
         raise(SIGTERM);
     }
 
+    size_t line = 0;
     conf->len = 0;
     while (conf->len < MAX_WATCH) {
         if ((fgets(buffer, PATH_MAX, conf_fp)) == NULL) {
             break;
         }
 
+        line++;
         buffer[strcspn(buffer, "\n")] = '\0';
         if (buffer[0] == '#' || (buffer[0] == '\n')) continue;
 
@@ -78,6 +80,7 @@ config_t *conf_parser(FILE *conf_fp) {
                     buffer[strcspn(buffer, "\n")] = '\0';
                     View_t vbuf = view_cstr(buffer);
 
+                    line++;
                     View_t left = {0};
                     View_t right = {0};
                     vbuf = view_trim(&vbuf);
@@ -89,6 +92,7 @@ config_t *conf_parser(FILE *conf_fp) {
 
                         path = left.str;
                         path[left.len + 1] = '\0';
+
                         if (view_starts_with((View_t *) &LEVEL_TAG, &right)) {
                             view_split(&right, ':', NULL, &right);
                             if (!view_to_u32(&right, &conf->watchlist[conf->len].prop.level))
@@ -99,7 +103,7 @@ config_t *conf_parser(FILE *conf_fp) {
                     }
 
                     if (!valid_file(path, S_IFDIR)) {
-                        log_error("%s: Not a valid Folder", path);
+                        log_error("%s: at line %lu in [dirs] member is not a valid Folder", path, line);
                         continue;
                     }
 
@@ -112,9 +116,10 @@ config_t *conf_parser(FILE *conf_fp) {
                 while ((fgets(buffer, PATH_MAX, conf_fp)) != NULL && conf->len < MAX_WATCH) {
                     buffer[strcspn(buffer, "\n")] = '\0';
                     View_t vbuf = view_cstr(buffer);
+
+                    line++;
                     View_t left = {0};
                     View_t right = {0};
-
                     vbuf = view_trim(&vbuf);
                     if (view_empty(&vbuf)) break;
                     if (view_split(&vbuf, ' ', &left, &right)) {
@@ -123,13 +128,18 @@ config_t *conf_parser(FILE *conf_fp) {
 
                         path = left.str;
                         path[left.len + 1] = '\0';
+                        if (view_find(&right, (View_t *) &LEVEL_TAG, 0) != NOT_FOUND) {
+                            log_error("%s: at line %lu in [files] cannot contain level", path, line);
+                            continue;
+                        }
+
                         if (view_eq((View_t *) &HASH_TAG, &right)) conf->watchlist[conf->len].prop.hash = true;
                     } else {
                         path = vbuf.str;
                     }
 
                     if (!valid_file(path, S_IFREG)) {
-                        log_error("%s: Not a valid file", path);
+                        log_error("%s: at line %lu in [files] memory is not a valid file", path, line);
                         continue;
                     }
 
@@ -142,21 +152,25 @@ config_t *conf_parser(FILE *conf_fp) {
                     buffer[strcspn(buffer, "\n")] = '\0';
                     View_t vbuf = view_cstr(buffer);
 
+                    line++;
                     vbuf = view_trim(&vbuf);
                     if (view_empty(&vbuf)) break;
-
-                    path = vbuf.str;
-                    if (!valid_file(path, S_IFDIR)) {
-                        log_error("%s: Not a valid Folder", path);
+                    if (view_split(&vbuf, ' ', NULL, NULL)) {
+                        log_error("%s: at line %lu in [mounts] members cannot space separated", vbuf.str, line);
                         continue;
                     }
 
-                    conf->watchlist[conf->len].path = strdup(path);
+                    if (!valid_file(vbuf.str, S_IFDIR)) {
+                        log_error("%s: at line %lu in [mounts] is not a valid Folder", vbuf.str, line);
+                        continue;
+                    }
+
+                    conf->watchlist[conf->len].path = strdup(vbuf.str);
                     conf->watchlist[conf->len++].type = F_IS_MNT;
                 }
             } break;
             case TAG_UNKNOWN: {
-                log_error("%s: Invalid entry in the config", buffer);
+                log_error("%s: Invalid entry at line %lu", buffer, line);
                 continue;
             }
         }
